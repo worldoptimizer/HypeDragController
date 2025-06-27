@@ -1,5 +1,8 @@
 # Hype Drag Controller
 
+
+![Hype Drag Controller|690x487](https://playground.maxziebell.de/Hype/DragController/HypeDragController.jpg)
+
 A self-contained, physics-agnostic drag-and-drop controller for Tumult Hype. Provides a clean, namespaced API with data-attribute-based target detection and callback support for creating interactive drag-and-drop experiences.
 
 ## Features
