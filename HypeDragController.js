@@ -1,5 +1,5 @@
 /*!
- * Hype Drag Controller v1.2.1
+ * Hype Drag Controller v1.2.2
  * Copyright (2024) Max Ziebell, MIT License
  */
 
@@ -15,12 +15,13 @@
  * 1.1.1   Enhanced drop target detection to select target with largest overlap area instead of first match.
  * 1.2.0   Added onProgress callback support during drag move phase for real-time interaction feedback.
  * 1.2.1   Added onStart callback support for drag initiation phase.
+ * 1.2.2   Refactored to use a unified callback signature for onDrop.
  */
 
 if ("HypeDragController" in window === false) {
     window['HypeDragController'] = (function() {
 
-        const _version = "1.2.1";
+        const _version = "1.2.2";
 
         let _default = {
             bringToFront: true,
@@ -191,9 +192,13 @@ if ("HypeDragController" in window === false) {
                 const data = doc.dragData[dragName];
                 data.isActive = false; 
                 const dropTarget = _getDropTarget(element, hypeDocument);
+                
+                // Add dropTarget to the event object to unify callback signatures
+                event.dropTarget = dropTarget;
+                
                 const interaction = doc.interactionMap?.[dragName];
                 if (interaction && typeof interaction.onDrop === 'function') {
-                    interaction.onDrop(hypeDocument, element, dropTarget);
+                    interaction.onDrop(hypeDocument, element, event);
                 }
                 setTimeout(() => { delete doc.dragData[dragName]; }, 50);
             }
