@@ -1,10 +1,6 @@
 /*!
  * Hype Drag Controller v1.2.1
  * Copyright (2024) Max Ziebell, MIT License
- *
- * A self-contained, physics-agnostic drag-and-drop controller for Tumult Hype.
- * Provides a namespaced API, data-attribute-based target detection, and a direct-invocation
- * interaction map for clean, centralized scene logic.
  */
 
 /*
