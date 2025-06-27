@@ -3,6 +3,7 @@
 
 ![Hype Drag Controller|690x487](https://playground.maxziebell.de/Hype/DragController/HypeDragController.jpg)
 
+
 A self-contained, physics-agnostic drag-and-drop controller for Tumult Hype. Provides a clean, namespaced API with data-attribute-based target detection and callback support for creating interactive drag-and-drop experiences.
 
 ## Features
@@ -59,7 +60,10 @@ Add this to your scene's **On Scene Load** action:
 ```javascript
 hypeDocument.drag.setInteractionMap({
     'card1': {
-        onDrop: function(hypeDocument, element, dropTarget) {
+        onDrop: function(hypeDocument, element, event) {
+            // The drop target element is now found inside the event object
+            const dropTarget = event.dropTarget;
+
             if (dropTarget && dropTarget.dataset.dropTarget === 'slot1') {
                 // Successful drop - snap to target
                 hypeDocument.drag.snapTo(element, dropTarget);
@@ -78,14 +82,17 @@ hypeDocument.drag.setInteractionMap({
 The main drag event handler. Assign this to your element's **On Drag** action.
 
 ### `hypeDocument.drag.setInteractionMap(map)`
-Define interaction behaviors for your draggable elements. This is typically set on scene load.
+Define interaction behaviors for your draggable elements. The `onDrop` callback now receives the `event` object as its third parameter, which contains the `dropTarget`.
 
 ```javascript
 hypeDocument.drag.setInteractionMap({
     'dragName': {
         onStart: function(hypeDocument, element, event) { /* ... */ },
         onProgress: function(hypeDocument, element, event) { /* ... */ },
-        onDrop: function(hypeDocument, element, dropTarget) { /* ... */ }
+        onDrop: function(hypeDocument, element, event) {
+            const dropTarget = event.dropTarget;
+            /* ... */
+        }
     }
 });
 ```
@@ -141,7 +148,7 @@ Please note that this `gameState` is **automatically cleared when the scene chan
 
 ## Complete Scene Example: Card Matching Game
 
-This example shows how to set up a complete drag-and-drop interaction for a single scene. The goal is to match two cards to their correct slots and then trigger a "win" timeline.
+This example shows how to set up a drag-and-drop game using **shared handler functions** for clean, reusable code. The goal is to match multiple cards to their correct slots and then trigger a "win" timeline.
 
 **Hype Setup:**
 *   Two draggable elements: `data-drag-name="cardA"` and `data-drag-name="cardB"`
@@ -165,66 +172,65 @@ Select the Scene and add this script to its **On Scene Load** action.
 
 ```javascript
 // -- GAME SETUP --
-// This gameState object is automatically cleared when leaving the scene.
 hypeDocument.customData.gameState = {
     matched: 0,
     neededToWin: 2
 };
 
-// A reusable function to check if the win condition is met.
 function checkWinCondition(hypeDocument) {
     if (hypeDocument.customData.gameState.matched >= hypeDocument.customData.gameState.neededToWin) {
         hypeDocument.startTimelineNamed('WinTimeline', hypeDocument.kDirectionForward);
     }
 }
 
-// -- INTERACTION MAP --
-// Define all drag-and-drop behaviors for this scene.
-hypeDocument.drag.setInteractionMap({
-    
-    'cardA': {
-        correctTarget: 'slotA', // Custom property to define the correct drop target
-        onDrop: handleDrop
-    },
-    
-    'cardB': {
-        correctTarget: 'slotB', // Custom property
-        onStart: function(hypeDocument, element, event) {
-            // Add visual feedback when dragging starts
-            hypeDocument.setElementProperty(element, 'rotateZ', 5, 0.2, 'easeout');
-        },
-        onDrop: function(hypeDocument, element, dropTarget) {
-            // Reset visual feedback
-            hypeDocument.setElementProperty(element, 'rotateZ', 0, 0.3, 'easein');
-            
-            // Call the shared drop handler
-            handleDrop.call(this, hypeDocument, element, dropTarget);
-        }
-    }
-});
+// -- SHARED HANDLER FUNCTIONS --
 
+// A shared function to apply visual feedback when a drag starts.
+function handleDragStart(hypeDocument, element, event) {
+    hypeDocument.setElementProperty(element, 'scaleX', 1.1, 0.2, 'easeout');
+    hypeDocument.setElementProperty(element, 'scaleY', 1.1, 0.2, 'easeout');
+}
 
-// -- SHARED DROP HANDLER --
-// A single function to handle the drop logic for any card.
-// 'this' refers to the interaction map object ('cardA' or 'cardB').
-function handleDrop(hypeDocument, element, dropTarget) {
+// A shared function to handle all drop logic.
+// 'this' refers to the interaction map object for the element being dropped.
+function handleCardDrop(hypeDocument, element, event) {
+    // First, reset the visual feedback from onStart.
+    hypeDocument.setElementProperty(element, 'scaleX', 1.0, 0.3, 'easein');
+    hypeDocument.setElementProperty(element, 'scaleY', 1.0, 0.3, 'easein');
+    
+    const dropTarget = event.dropTarget;
+    // 'this.correctTarget' is a custom property we define in the map below.
     if (dropTarget && dropTarget.dataset.dropTarget === this.correctTarget) {
-        // SUCCESS: Dropped on the correct target
+        // SUCCESS
         hypeDocument.drag.snapTo(element, dropTarget);
-        hypeDocument.drag.lock(element); // Lock the element in place
+        hypeDocument.drag.lock(element);
         hypeDocument.customData.gameState.matched++;
         checkWinCondition(hypeDocument);
-        
     } else {
-        // FAIL: Dropped on an incorrect target or nowhere
+        // FAIL
         hypeDocument.drag.snapBack(element);
     }
 }
+
+// -- INTERACTION MAP --
+// Assign the shared handlers to multiple elements.
+hypeDocument.drag.setInteractionMap({
+    'cardA': {
+        correctTarget: 'slotA', // Custom property for this card's logic
+        onStart: handleDragStart,
+        onDrop: handleCardDrop
+    },
+    'cardB': {
+        correctTarget: 'slotB', // Custom property for this card's logic
+        onStart: handleDragStart,
+        onDrop: handleCardDrop
+    }
+});
 ```
 
 ## Advanced Technique: Snapping to an Alternate Position
 
-Sometimes you want the drop area to be larger or different from the element's final resting place. For example, you might have a large, visible drop zone but want the card to snap neatly to a small, invisible point within that zone.
+Sometimes you want the drop area to be larger than the element's final resting place. This technique uses an invisible element as a precise snap point within a larger drop zone.
 
 **Hype Setup:**
 *   A draggable element: `data-drag-name="card1"`
@@ -233,7 +239,7 @@ Sometimes you want the drop area to be larger or different from the element's fi
 
 **On Scene Load Script:**
 
-By adding a custom `snapToSelector` property to our interaction map, we can tell the `onDrop` function where to snap the element.
+We add a custom `snapToSelector` property to our interaction map to tell the `onDrop` function where to snap the element.
 
 ```javascript
 hypeDocument.drag.setInteractionMap({
@@ -242,15 +248,15 @@ hypeDocument.drag.setInteractionMap({
         correctTarget: 'holder1',
         snapToSelector: '.holder1-snap', // Use the class name as a CSS selector
         
-        onDrop: function(hypeDocument, draggedElement, targetElement) {
+        onDrop: function(hypeDocument, draggedElement, event) {
+            const targetElement = event.dropTarget;
+
             // Check if it was dropped on the correct target area
             if (targetElement && targetElement.dataset.dropTarget === this.correctTarget) {
                 
                 // Snap to our custom selector instead of the drop target itself
                 hypeDocument.drag.snapTo(draggedElement, this.snapToSelector);
                 hypeDocument.drag.lock(draggedElement);
-                
-                // You could add scoring logic here...
                 
             } else {
                 hypeDocument.drag.snapBack(draggedElement); 
