@@ -6,6 +6,22 @@
 
 A self-contained, physics-agnostic drag-and-drop controller for Tumult Hype. Provides a clean, namespaced API with data-attribute-based target detection and callback support for creating interactive drag-and-drop experiences.
 
+Content Delivery Network (CDN)
+--
+
+Latest version can be linked into your project using the following in the head section of your project:
+
+```html
+<script src="https://cdn.jsdelivr.net/gh/worldoptimizer/HypeDragController/HypeDragController.min.js"></script>
+```
+Optionally you can also link a SRI version or specific releases. 
+Read more about that on the JsDelivr (CDN) page for this extension at https://www.jsdelivr.com/package/gh/worldoptimizer/HypeDragController
+
+Learn how to use the latest extension version and how to combine extensions into one file at
+https://github.com/worldoptimizer/HypeCookBook/wiki/Including-external-files-and-Hype-extensions
+
+---
+
 ## Features
 
 -   **Self-contained**: No external dependencies beyond Tumult Hype
