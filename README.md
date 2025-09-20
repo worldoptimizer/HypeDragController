@@ -145,7 +145,8 @@ HypeDragController.setDefault({
     snapBackDuration: 0.4,        // Snap back animation duration
     snapBackTiming: 'easeinout',  // Snap back timing function
     snapToDuration: 0.3,          // Snap to target duration
-    snapToTiming: 'easeout'       // Snap to target timing function
+    snapToTiming: 'easeout',      // Snap to target timing function
+    resetOnSceneUnload: false     // Reset drag state on scene unload
 });
 ```
 
