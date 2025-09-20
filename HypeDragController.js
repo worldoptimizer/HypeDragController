@@ -1,6 +1,6 @@
 /*!
- * Hype Drag Controller v1.2.2
- * Copyright (2024) Max Ziebell, MIT License
+ * Hype Drag Controller v1.3.1
+ * Copyright (2025) Max Ziebell, MIT License
  */
 
 /*
@@ -16,12 +16,14 @@
  * 1.2.0   Added onProgress callback support during drag move phase for real-time interaction feedback.
  * 1.2.1   Added onStart callback support for drag initiation phase.
  * 1.2.2   Refactored to use a unified callback signature for onDrop.
+ * 1.3.0   Added resetState API to clear all drag-related states for a scene.
+ * 1.3.1   Added resetOnSceneUnload defaults to false and removed visual styling clearing.
  */
 
 if ("HypeDragController" in window === false) {
     window['HypeDragController'] = (function() {
 
-        const _version = "1.2.2";
+        const _version = "1.3.1";
 
         let _default = {
             bringToFront: true,
@@ -29,6 +31,7 @@ if ("HypeDragController" in window === false) {
             snapBackTiming: 'easeinout',
             snapToDuration: 0.3,
             snapToTiming: 'easeout',
+            resetOnSceneUnload: false
         };
 
         /**
@@ -269,6 +272,32 @@ if ("HypeDragController" in window === false) {
         function setInteractionMap(hypeDocument, map) { _getDocRegistry(hypeDocument).interactionMap = map; }
 
         /**
+         * Resets all drag-related state for a scene - locks, cached positions, visual styling
+         * @param {HypeDocument} hypeDocument - The Hype document object.
+         * @param {HTMLElement} [sceneElement] - Scene element, or current scene if omitted
+         */
+        function resetDragState(hypeDocument, sceneElement) {
+            if (!sceneElement) {
+                sceneElement = hypeDocument.getElementById(hypeDocument.currentSceneId());
+            }
+            
+            // Clear all drag locks AND data attributes
+            const allDraggables = sceneElement.querySelectorAll('[data-drag-name]');
+            allDraggables.forEach(el => {
+                unlock(hypeDocument, el);
+                // Clear cached position data attributes
+                el.removeAttribute('data-initial-left');
+                el.removeAttribute('data-initial-top');
+            });
+            
+            // Clear interaction data
+            _getDocRegistry(hypeDocument).interactionMap = {};
+            if (hypeDocument.customData) { 
+                hypeDocument.customData.gameState = {}; 
+            }
+        }
+
+        /**
          * Hype event callback triggered when a Hype document is loaded.
          * Initializes the drag controller API on the hypeDocument object.
          * @param {HypeDocument} hypeDocument - The Hype document object.
@@ -283,7 +312,8 @@ if ("HypeDragController" in window === false) {
                 snapTo: snapTo.bind(null, hypeDocument),
                 lock: lock.bind(null, hypeDocument),
                 unlock: unlock.bind(null, hypeDocument),
-                setInteractionMap: setInteractionMap.bind(null, hypeDocument)
+                setInteractionMap: setInteractionMap.bind(null, hypeDocument),
+                resetState: resetDragState.bind(null, hypeDocument)
             };
             hypeDocument.customData.gameState = {};
         }
@@ -296,8 +326,9 @@ if ("HypeDragController" in window === false) {
          * @param {object} event - The event object.
          */
         function HypeSceneUnload(hypeDocument, element, event) {
-            _getDocRegistry(hypeDocument).interactionMap = {};
-            if (hypeDocument.customData) { hypeDocument.customData.gameState = {}; }
+            if (getDefault('resetOnSceneUnload')) {
+                resetDragState(hypeDocument, element);
+            }
         }
 
         if ("HYPE_eventListeners" in window === false) { window.HYPE_eventListeners = []; }
@@ -307,8 +338,8 @@ if ("HypeDragController" in window === false) {
         return { 
             version: _version, 
             setDefault: setDefault, 
-            getDefault: getDefault
+            getDefault
         };
 
     })();
-} 
+}
