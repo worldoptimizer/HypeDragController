@@ -144,52 +144,57 @@ if ("HypeDragController" in window === false) {
          * Calculates the bounding rectangle for a containment element.
          * @private
          * @param {HTMLElement} element - The element being dragged.
-         * @param {HTMLElement|string} containment - The containment element or selector.
+         * @param {string} containment - CSS class selector or 'parent' for containment.
          * @param {HypeDocument} hypeDocument - The Hype document object.
-         * @returns {object} Object with minX, maxX, minY, maxY properties defining the containment bounds.
+         * @returns {object|null} Object with minX, maxX, minY, maxY properties, or null if containment fails.
          */
         function _getContainmentBounds(element, containment, hypeDocument) {
             let container;
 
-            // Handle special 'parent' containment
+            // Handle parent containment - find closest Hype element
             if (containment === 'parent') {
-                container = element.parentElement;
+                const sceneEl = hypeDocument.getElementById(hypeDocument.currentSceneId());
+                container = element.parentElement.closest('.HYPE_element') || sceneEl;
+            }
+            // Handle CSS class selector containment
+            else if (typeof containment === 'string') {
+                const sceneEl = hypeDocument.getElementById(hypeDocument.currentSceneId());
+                container = sceneEl.querySelector(containment);
                 if (!container) {
-                    console.warn('HypeDragController: Element has no parent for containment constraint.', element);
-                    return { minX: -Infinity, maxX: Infinity, minY: -Infinity, maxY: Infinity };
+                    console.warn('HypeDragController: Containment selector "' + containment + '" not found.', element);
+                    return null;
                 }
             } else {
-                // Handle selector string
-                if (typeof containment === 'string') {
-                    const sceneEl = hypeDocument.getElementById(hypeDocument.currentSceneId());
-                    container = sceneEl.querySelector(containment);
-                    if (!container) {
-                        console.warn('HypeDragController: Containment selector "' + containment + '" not found.', element);
-                        return { minX: -Infinity, maxX: Infinity, minY: -Infinity, maxY: Infinity };
-                    }
-                } else if (containment && containment.id) {
-                    // Handle direct element reference
-                    container = containment;
-                } else {
-                    console.warn('HypeDragController: Invalid containment specification.', element);
-                    return { minX: -Infinity, maxX: Infinity, minY: -Infinity, maxY: Infinity };
-                }
+                console.warn('HypeDragController: Invalid containment specification. Must be a CSS class selector or "parent".', element);
+                return null;
             }
 
-            const containerLeft = hypeDocument.getElementProperty(container, 'left');
-            const containerTop = hypeDocument.getElementProperty(container, 'top');
             const containerWidth = hypeDocument.getElementProperty(container, 'width');
             const containerHeight = hypeDocument.getElementProperty(container, 'height');
             const elementWidth = hypeDocument.getElementProperty(element, 'width');
             const elementHeight = hypeDocument.getElementProperty(element, 'height');
 
-            return {
-                minX: containerLeft,
-                maxX: containerLeft + containerWidth - elementWidth,
-                minY: containerTop,
-                maxY: containerTop + containerHeight - elementHeight
-            };
+            // For parent containment, bounds are relative to parent (0,0 origin)
+            // For class selector containment, bounds are absolute scene coordinates
+            if (containment === 'parent') {
+                return {
+                    minX: 0,
+                    maxX: containerWidth - elementWidth,
+                    minY: 0,
+                    maxY: containerHeight - elementHeight
+                };
+            } else {
+                const containerLeft = hypeDocument.getElementProperty(container, 'left');
+                const containerTop = hypeDocument.getElementProperty(container, 'top');
+                return {
+                    minX: containerLeft,
+                    maxX: containerLeft + containerWidth - elementWidth,
+                    minY: containerTop,
+                    maxY: containerTop + containerHeight - elementHeight
+                };
+            }
         }
+
 
         /**
          * The main drag event handler. Manages start, move, and end phases of a drag.
@@ -251,8 +256,12 @@ if ("HypeDragController" in window === false) {
                     // Containment constraints
                     if (constraints.containment) {
                         const bounds = _getContainmentBounds(element, constraints.containment, hypeDocument);
-                        newLeft = Math.max(bounds.minX, Math.min(newLeft, bounds.maxX));
-                        newTop = Math.max(bounds.minY, Math.min(newTop, bounds.maxY));
+                        // Only apply containment bounds if we got valid bounds (not null)
+                        if (bounds) {
+                            newLeft = Math.max(bounds.minX, Math.min(newLeft, bounds.maxX));
+                            newTop = Math.max(bounds.minY, Math.min(newTop, bounds.maxY));
+                        }
+                        // If containment failed, axis/boundary constraints are still preserved
                     }
                 }
 
@@ -357,7 +366,7 @@ if ("HypeDragController" in window === false) {
          * @param {number} [constraints.minY] - Minimum Y position allowed.
          * @param {number} [constraints.maxY] - Maximum Y position allowed.
          * @param {string} [constraints.axis] - Restrict movement to 'x' or 'y' axis only.
-         * @param {HTMLElement|string} [constraints.containment] - Element or selector to contain movement within.
+         * @param {string} [constraints.containment] - CSS class selector (e.g., '.gameArea') or 'parent' to contain movement within.
          */
         function setConstraints(hypeDocument, elements, constraints) {
             const doc = _getDocRegistry(hypeDocument);
@@ -384,13 +393,23 @@ if ("HypeDragController" in window === false) {
          */
         function _applyConstraintsToElement(hypeDocument, doc, element, constraints) {
             let dragName;
+            let targetElement;
 
             // Handle both element objects and drag name strings
             if (typeof element === 'string') {
                 // If element is a string, treat it as a drag name
                 dragName = element;
+
+                // Find the element by drag name to verify it exists
+                const sceneEl = hypeDocument.getElementById(hypeDocument.currentSceneId());
+                targetElement = sceneEl.querySelector(`[data-drag-name="${dragName}"]`);
+                if (!targetElement) {
+                    console.warn(`HypeDragController: No element found with data-drag-name="${dragName}".`, element);
+                    return;
+                }
             } else {
                 // If element is an object, get its drag name
+                targetElement = element;
                 dragName = element.dataset.dragName;
                 if (!dragName) {
                     console.warn('HypeDragController: Cannot set constraints on element without "data-drag-name" attribute.', element);
