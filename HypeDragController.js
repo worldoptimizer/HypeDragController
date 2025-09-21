@@ -1,5 +1,5 @@
 /*!
- * Hype Drag Controller v1.4.0
+ * Hype Drag Controller v1.4.1
  * Copyright (2024) Max Ziebell, MIT License
  */
 
@@ -18,12 +18,13 @@
  * 1.2.2   Refactored to use a unified callback signature for onDrop.
  * 1.3.0   Added resetState API to clear all drag-related states for a scene.
  * 1.3.1   Added resetOnSceneUnload defaults to false and removed visual styling clearing.
- * 1.4.0   Added comprehensive drag constraint system with boundary, axis, and containment restrictions.
+ * 1.4.0   Added comprehensive drag constraint system with boundary, axis, and within-region restrictions.
  *          Enhanced to accept drag names, automatic data-attribute constraint loading, and array support for batch operations.
+ * 1.4.1   Added auto-snap functionality to automatically snap elements to their constraints.
  */
 
 if ("HypeDragController" in window === false) window['HypeDragController'] = (function() {
-    const _version = "1.4.0";
+    const _version = "1.4.1";
 
     let _default = {
         bringToFront: true,
@@ -31,7 +32,8 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
         snapBackTiming: 'easeinout',
         snapToDuration: 0.3,
         snapToTiming: 'easeout',
-        resetOnSceneUnload: false
+        resetOnSceneUnload: false,
+        autoSnap: false
     };
 
     /**
@@ -81,7 +83,7 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
     function _getDocRegistry(hypeDocument) {
         const docId = hypeDocument.documentId();
         if (!_documents[docId]) {
-            _documents[docId] = { dragData: {}, interactionMap: {}, constraints: {} };
+            _documents[docId] = { dragData: {}, interactionMap: {}, constraints: {}, zCounter: 10000 };
         }
         return _documents[docId];
     }
@@ -139,31 +141,31 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
     }
 
     /**
-     * Calculates the bounding rectangle for a containment element.
+     * Calculates the bounding rectangle for a within-region element.
      * @private
      * @param {HTMLElement} element - The element being dragged.
-     * @param {string} containment - CSS class selector or 'parent' for containment.
+     * @param {string} within - CSS class selector or 'parent' for within-region bounds.
      * @param {HypeDocument} hypeDocument - The Hype document object.
-     * @returns {object|null} Object with minX, maxX, minY, maxY properties, or null if containment fails.
+     * @returns {object|null} Object with minX, maxX, minY, maxY properties, or null if the region can't be found.
      */
-    function _getContainmentBounds(element, containment, hypeDocument) {
+    function _getWithinBounds(element, within, hypeDocument) {
         let container;
 
-        // Handle parent containment - find closest Hype element
-        if (containment === 'parent') {
+        // Handle parent region - find closest Hype element
+        if (within === 'parent') {
             const sceneEl = hypeDocument.getElementById(hypeDocument.currentSceneId());
             container = element.parentElement.closest('.HYPE_element') || sceneEl;
         }
-        // Handle CSS class selector containment
-        else if (typeof containment === 'string') {
+        // Handle CSS selector region
+        else if (typeof within === 'string') {
             const sceneEl = hypeDocument.getElementById(hypeDocument.currentSceneId());
-            container = sceneEl.querySelector(containment);
+            container = sceneEl.querySelector(within);
             if (!container) {
-                console.warn('HypeDragController: Containment selector "' + containment + '" not found.', element);
+                console.warn('HypeDragController: Within selector "' + within + '" not found.', element);
                 return null;
             }
         } else {
-            console.warn('HypeDragController: Invalid containment specification. Must be a CSS class selector or "parent".', element);
+            console.warn('HypeDragController: Invalid within specification. Must be a CSS selector or "parent".', element);
             return null;
         }
 
@@ -172,9 +174,9 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
         const elementWidth = hypeDocument.getElementProperty(element, 'width');
         const elementHeight = hypeDocument.getElementProperty(element, 'height');
 
-        // For parent containment, bounds are relative to parent (0,0 origin)
-        // For class selector containment, bounds are absolute scene coordinates
-        if (containment === 'parent') {
+        // For parent region, bounds are relative to parent (0,0 origin)
+        // For selector region, bounds are absolute scene coordinates
+        if (within === 'parent') {
             return {
                 minX: 0,
                 maxX: containerWidth - elementWidth,
@@ -195,6 +197,50 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
 
 
     /**
+     * Computes a constrained position given proposed left/top and a baseline for axis locks.
+     * Centralizes boundary, axis and within-region calculations used during drag and auto snap.
+     * @private
+     * @param {HypeDocument} hypeDocument
+     * @param {HTMLElement} element
+     * @param {object} constraints
+     * @param {number} proposedLeft
+     * @param {number} proposedTop
+     * @param {number} axisBaselineLeft - The reference left used when axis === 'y'
+     * @param {number} axisBaselineTop - The reference top used when axis === 'x'
+     * @returns {{left:number, top:number}}
+     */
+    function _computeConstrainedPosition(hypeDocument, element, constraints, proposedLeft, proposedTop, axisBaselineLeft, axisBaselineTop) {
+        let newLeft = proposedLeft;
+        let newTop = proposedTop;
+
+        if (!constraints) {
+            return { left: newLeft, top: newTop };
+        }
+
+        // Boundary constraints
+        if (constraints.minX !== undefined) newLeft = Math.max(newLeft, constraints.minX);
+        if (constraints.maxX !== undefined) newLeft = Math.min(newLeft, constraints.maxX);
+        if (constraints.minY !== undefined) newTop = Math.max(newTop, constraints.minY);
+        if (constraints.maxY !== undefined) newTop = Math.min(newTop, constraints.maxY);
+
+        // Axis constraints
+        if (constraints.axis === 'x') newTop = axisBaselineTop;
+        if (constraints.axis === 'y') newLeft = axisBaselineLeft;
+
+        // Within-region constraints
+        if (constraints.within) {
+            const bounds = _getWithinBounds(element, constraints.within, hypeDocument);
+            if (bounds) {
+                newLeft = Math.max(bounds.minX, Math.min(newLeft, bounds.maxX));
+                newTop = Math.max(bounds.minY, Math.min(newTop, bounds.maxY));
+            }
+        }
+
+        return { left: newLeft, top: newTop };
+    }
+
+
+    /**
      * The main drag event handler. Manages start, move, and end phases of a drag.
      * This function is intended to be called by Hype's "On Drag" event.
      * @param {HypeDocument} hypeDocument - The Hype document object.
@@ -211,20 +257,15 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
         const finalOptions = getDefault();
 
         if (event.hypeGesturePhase === 'start') {
-            // Optimize: Use cached initial position if available, otherwise get and set it.
-            let initialLeft, initialTop;
-            if (element.hasAttribute('data-initial-left')) {
-                initialLeft = parseFloat(element.getAttribute('data-initial-left'));
-                initialTop = parseFloat(element.getAttribute('data-initial-top'));
-            } else {
-                initialLeft = hypeDocument.getElementProperty(element, 'left');
-                initialTop = hypeDocument.getElementProperty(element, 'top');
-                element.setAttribute('data-initial-left', initialLeft);
-                element.setAttribute('data-initial-top', initialTop);
-            }
-            
+            // Always take the current position as the new drag baseline to avoid offset on repeated drags
+            const initialLeft = hypeDocument.getElementProperty(element, 'left');
+            const initialTop = hypeDocument.getElementProperty(element, 'top');
+            // Refresh cached attributes so snapBack (which uses doc.dragData) stays correct for this session
+            element.setAttribute('data-initial-left', initialLeft);
+            element.setAttribute('data-initial-top', initialTop);
+
             doc.dragData[dragName] = { initialLeft: initialLeft, initialTop: initialTop, initialZ: hypeDocument.getElementProperty(element, 'z-index'), startX: event.hypeGestureXPosition, startY: event.hypeGestureYPosition, isActive: true };
-            if (finalOptions.bringToFront) { hypeDocument.setElementProperty(element, 'z-index', 9999); }
+            if (finalOptions.bringToFront) { hypeDocument.setElementProperty(element, 'z-index', ++doc.zCounter); }
             
             // Execute onStart callback if available
             const interaction = doc.interactionMap?.[dragName];
@@ -241,26 +282,17 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
             // Apply constraints
             const constraints = doc.constraints?.[dragName];
             if (constraints) {
-                // Boundary constraints
-                if (constraints.minX !== undefined) newLeft = Math.max(newLeft, constraints.minX);
-                if (constraints.maxX !== undefined) newLeft = Math.min(newLeft, constraints.maxX);
-                if (constraints.minY !== undefined) newTop = Math.max(newTop, constraints.minY);
-                if (constraints.maxY !== undefined) newTop = Math.min(newTop, constraints.maxY);
-
-                // Axis constraints
-                if (constraints.axis === 'x') newTop = data.initialTop;
-                if (constraints.axis === 'y') newLeft = data.initialLeft;
-
-                // Containment constraints
-                if (constraints.containment) {
-                    const bounds = _getContainmentBounds(element, constraints.containment, hypeDocument);
-                    // Only apply containment bounds if we got valid bounds (not null)
-                    if (bounds) {
-                        newLeft = Math.max(bounds.minX, Math.min(newLeft, bounds.maxX));
-                        newTop = Math.max(bounds.minY, Math.min(newTop, bounds.maxY));
-                    }
-                    // If containment failed, axis/boundary constraints are still preserved
-                }
+                const result = _computeConstrainedPosition(
+                    hypeDocument,
+                    element,
+                    constraints,
+                    newLeft,
+                    newTop,
+                    /* axisBaselineLeft */ data.initialLeft,
+                    /* axisBaselineTop  */ data.initialTop
+                );
+                newLeft = result.left;
+                newTop = result.top;
             }
 
             hypeDocument.setElementProperty(element, 'left', newLeft);
@@ -275,16 +307,17 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
 
         if ((event.hypeGesturePhase === 'end' || event.hypeGesturePhase === 'cancel') && doc.dragData[dragName] && doc.dragData[dragName].isActive) {
             const data = doc.dragData[dragName];
-            data.isActive = false; 
+            data.isActive = false;
             const dropTarget = _getDropTarget(element, hypeDocument);
-            
+
             // Add dropTarget to the event object to unify callback signatures
             event.dropTarget = dropTarget;
-            
+
             const interaction = doc.interactionMap?.[dragName];
             if (interaction && typeof interaction.onDrop === 'function') {
                 interaction.onDrop(hypeDocument, element, event);
             }
+
             setTimeout(() => { delete doc.dragData[dragName]; }, 50);
         }
     }
@@ -364,7 +397,8 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
      * @param {number} [constraints.minY] - Minimum Y position allowed.
      * @param {number} [constraints.maxY] - Maximum Y position allowed.
      * @param {string} [constraints.axis] - Restrict movement to 'x' or 'y' axis only.
-     * @param {string} [constraints.containment] - CSS class selector (e.g., '.gameArea') or 'parent' to contain movement within.
+     * @param {string} [constraints.within] - CSS selector (e.g., '.gameArea') or 'parent' to restrict movement within.
+     * @param {boolean} [constraints.autoSnap] - If true (or omitted and default allows), snap immediately.
      */
     function setConstraints(hypeDocument, elements, constraints) {
         const doc = _getDocRegistry(hypeDocument);
@@ -416,10 +450,60 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
         }
 
         doc.constraints[dragName] = constraints || {};
+
+        // Trigger auto snap if requested via constraints or global default
+        const hasAutoSnapFlag = constraints && Object.prototype.hasOwnProperty.call(constraints, 'autoSnap');
+        const shouldSnap = hasAutoSnapFlag ? !!constraints.autoSnap : getDefault('autoSnap');
+        if (shouldSnap) {
+            // Defer to ensure element is fully positioned before snapping, mirroring data-attribute behavior
+            setTimeout(() => { _applyAutoSnap(hypeDocument, targetElement); }, 0);
+        }
+    }
+
+    /**
+     * Applies constraints to an element's current position without requiring a drag operation.
+     * This is used for auto snap functionality and other position adjustments.
+     * @private
+     * @param {HypeDocument} hypeDocument - The Hype document object.
+     * @param {HTMLElement} element - The element to snap to constraints.
+     */
+    function _applyAutoSnap(hypeDocument, element) {
+        const doc = _getDocRegistry(hypeDocument);
+        const dragName = element.dataset.dragName;
+        if (!dragName) return;
+
+        const constraints = doc.constraints?.[dragName];
+        if (!constraints) return;
+
+        const currentLeft = hypeDocument.getElementProperty(element, 'left');
+        const currentTop = hypeDocument.getElementProperty(element, 'top');
+        const result = _computeConstrainedPosition(
+            hypeDocument,
+            element,
+            constraints,
+            currentLeft,
+            currentTop,
+            /* axisBaselineLeft */ currentLeft,
+            /* axisBaselineTop  */ currentTop
+        );
+        const newLeft = result.left;
+        const newTop = result.top;
+
+        // Only update position if it actually changed (no animation for auto snap)
+        if (newLeft !== currentLeft || newTop !== currentTop) {
+            hypeDocument.setElementProperty(element, 'left', newLeft);
+            hypeDocument.setElementProperty(element, 'top', newTop);
+
+            // Update the initial position data attributes to reflect the new position
+            // This prevents offset issues on subsequent drags
+            element.setAttribute('data-initial-left', newLeft);
+            element.setAttribute('data-initial-top', newTop);
+        }
     }
 
     /**
      * Automatically reads and applies constraints from data attributes on draggable elements.
+     * Also handles auto snap functionality if enabled globally or per-element.
      * Called when each scene is prepared for display.
      * @private
      * @param {HypeDocument} hypeDocument - The Hype document object.
@@ -428,40 +512,56 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
         const doc = _getDocRegistry(hypeDocument);
         const sceneEl = hypeDocument.getElementById(hypeDocument.currentSceneId());
         const draggableElements = sceneEl.querySelectorAll('[data-drag-name]');
+        const globalAutoSnap = getDefault('autoSnap');
 
         draggableElements.forEach(element => {
             const dragName = element.dataset.dragName;
 
-            // Check for constraint data attributes
+            // Check for constraint data attributes (unified data-drag-* scheme)
             const constraints = {};
 
             // Boundary constraints
-            if (element.hasAttribute('data-constraint-min-x')) {
-                constraints.minX = parseFloat(element.getAttribute('data-constraint-min-x'));
+            if (element.hasAttribute('data-drag-min-x')) {
+                constraints.minX = parseFloat(element.getAttribute('data-drag-min-x'));
             }
-            if (element.hasAttribute('data-constraint-max-x')) {
-                constraints.maxX = parseFloat(element.getAttribute('data-constraint-max-x'));
+            if (element.hasAttribute('data-drag-max-x')) {
+                constraints.maxX = parseFloat(element.getAttribute('data-drag-max-x'));
             }
-            if (element.hasAttribute('data-constraint-min-y')) {
-                constraints.minY = parseFloat(element.getAttribute('data-constraint-min-y'));
+            if (element.hasAttribute('data-drag-min-y')) {
+                constraints.minY = parseFloat(element.getAttribute('data-drag-min-y'));
             }
-            if (element.hasAttribute('data-constraint-max-y')) {
-                constraints.maxY = parseFloat(element.getAttribute('data-constraint-max-y'));
+            if (element.hasAttribute('data-drag-max-y')) {
+                constraints.maxY = parseFloat(element.getAttribute('data-drag-max-y'));
             }
 
             // Axis constraint
-            if (element.hasAttribute('data-constraint-axis')) {
-                constraints.axis = element.getAttribute('data-constraint-axis');
+            if (element.hasAttribute('data-drag-axis')) {
+                constraints.axis = element.getAttribute('data-drag-axis');
             }
 
-            // Containment constraint
-            if (element.hasAttribute('data-constraint-containment')) {
-                constraints.containment = element.getAttribute('data-constraint-containment');
+            // Within constraint
+            if (element.hasAttribute('data-drag-within')) {
+                constraints.within = element.getAttribute('data-drag-within');
             }
 
             // Only set constraints if any were found
             if (Object.keys(constraints).length > 0) {
                 doc.constraints[dragName] = constraints;
+            }
+
+            // Apply auto snap if enabled globally or per-element (supports alias 'data-drag-autosnap')
+            let elementAutoSnap = globalAutoSnap;
+            if (element.hasAttribute('data-drag-auto-snap')) {
+                elementAutoSnap = element.getAttribute('data-drag-auto-snap') === 'true';
+            } else if (element.hasAttribute('data-drag-autosnap')) {
+                elementAutoSnap = element.getAttribute('data-drag-autosnap') === 'true';
+            }
+
+            if (elementAutoSnap && Object.keys(constraints).length > 0) {
+                // Use setTimeout to ensure element is fully positioned before snapping
+                setTimeout(() => {
+                    _applyAutoSnap(hypeDocument, element);
+                }, 0);
             }
         });
     }
@@ -505,6 +605,7 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
             handler: handler.bind(null, hypeDocument),
             snapBack: snapBack.bind(null, hypeDocument),
             snapTo: snapTo.bind(null, hypeDocument),
+            autoSnap: function(element) { _applyAutoSnap(hypeDocument, element); },
             lock: lock.bind(null, hypeDocument),
             unlock: unlock.bind(null, hypeDocument),
             setInteractionMap: setInteractionMap.bind(null, hypeDocument),
