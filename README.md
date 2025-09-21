@@ -31,6 +31,7 @@ https://github.com/worldoptimizer/HypeCookBook/wiki/Including-external-files-and
 -   **Element locking**: Lock/unlock draggable elements to control interaction states
 -   **Snap animations**: Built-in snap-back and snap-to animations with customizable timing
 -   **Multi-document support**: Works with multiple Hype documents on the same page
+-   **Drag constraints**: Boundary, axis, and containment restrictions with automatic data-attribute loading
 
 ## Installation
 
@@ -135,6 +136,164 @@ hypeDocument.drag.lock(element);    // Disable dragging
 hypeDocument.drag.unlock(element);  // Enable dragging
 ```
 
+### `hypeDocument.drag.setConstraints(elements, constraints)`
+Set drag constraints for one or multiple draggable elements. Constraints limit where elements can be moved during dragging.
+
+```javascript
+// Single element or drag name
+hypeDocument.drag.setConstraints('card1', {
+    minX: 100, maxX: 500, axis: 'x'
+});
+
+// Multiple elements with parent containment
+hypeDocument.drag.setConstraints(['card1', 'card2', 'card3'], {
+    containment: 'parent'
+});
+
+// Multiple elements with class selector containment
+hypeDocument.drag.setConstraints(['card1', 'card2', 'card3'], {
+    containment: '.gameArea'
+});
+
+// Mixed array of elements and strings
+hypeDocument.drag.setConstraints([card1Element, 'card2', 'card3'], {
+    minY: 200, maxY: 400
+});
+```
+
+#### Constraint Options
+
+| Option | Type | Description |
+| ------ | ---- | ----------- |
+| `minX` | number | Minimum X position allowed (top-left corner). |
+| `maxX` | number | Maximum X position allowed (top-left corner). |
+| `minY` | number | Minimum Y position allowed (top-left corner). |
+| `maxY` | number | Maximum Y position allowed (top-left corner). |
+| `axis` | string | Restrict movement to 'x' or 'y' axis only. |
+| `containment` | string | CSS class selector (e.g., '.gameArea') or 'parent' to contain movement within. |
+
+## Drag Constraints Guide
+
+Drag constraints provide fine-grained control over where draggable elements can be moved.
+
+### Basic Constraint Types
+
+#### **Boundary Constraints**
+Limit dragging to a specific rectangular area:
+
+```javascript
+hypeDocument.drag.setConstraints('card1', {
+    minX: 100, maxX: 600,
+    minY: 50, maxY: 350
+});
+```
+
+#### **Container Containment**
+Keep elements within containers:
+
+```javascript
+// Stay within parent container (finds closest Hype element)
+hypeDocument.drag.setConstraints('card1', {
+    containment: 'parent'
+});
+
+// Stay within specific container by class selector
+hypeDocument.drag.setConstraints('card1', {
+    containment: '.gameArea'
+});
+```
+
+#### **Axis Constraints**
+Restrict movement to horizontal or vertical only:
+
+```javascript
+// Horizontal movement only
+hypeDocument.drag.setConstraints('slider', {
+    axis: 'x'
+});
+
+// Vertical movement only
+hypeDocument.drag.setConstraints('scrollbar', {
+    axis: 'y'
+});
+```
+
+### Using Data Attributes in Hype
+
+Define constraints directly on elements using Hype's Identity Inspector:
+
+**For boundary constraints:**
+1. Select your element in Hype
+2. Open **Identity Inspector** → **Attributes**
+3. Add these attributes:
+   - `data-drag-name`: `card1`
+   - `data-constraint-min-x`: `100`
+   - `data-constraint-max-x`: `600`
+   - `data-constraint-min-y`: `50`
+   - `data-constraint-max-y`: `350`
+
+**For axis constraints:**
+1. Select your element in Hype
+2. Open **Identity Inspector** → **Attributes**
+3. Add these attributes:
+   - `data-drag-name`: `slider1`
+   - `data-constraint-axis`: `x`
+
+**For parent containment:**
+1. Select your element in Hype
+2. Open **Identity Inspector** → **Attributes**
+3. Add these attributes:
+   - `data-drag-name`: `card1`
+   - `data-constraint-containment`: `parent`
+
+**For class selector containment:**
+1. Select your element in Hype
+2. Open **Identity Inspector** → **Attributes**
+3. Add these attributes:
+   - `data-drag-name`: `card1`
+   - `data-constraint-containment`: `.gameArea`
+
+### Batch Operations
+
+Apply the same constraints to multiple elements:
+
+```javascript
+// Multiple elements with same constraints
+hypeDocument.drag.setConstraints(['card1', 'card2', 'card3'], {
+    minX: 50, maxX: 550,
+    minY: 100, maxY: 350
+});
+
+// Different constraint groups
+hypeDocument.drag.setConstraints(['slider1', 'slider2'], {
+    axis: 'x'
+});
+```
+
+### Combining with Interaction Maps
+
+```javascript
+hypeDocument.drag.setInteractionMap({
+    'card1': {
+        correctTarget: 'slot1',
+        onDrop: function(hypeDocument, element, event) {
+            const dropTarget = event.dropTarget;
+            if (dropTarget && dropTarget.dataset.dropTarget === this.correctTarget) {
+                hypeDocument.drag.snapTo(element, dropTarget);
+                hypeDocument.drag.lock(element);
+            } else {
+                hypeDocument.drag.snapBack(element);
+            }
+        }
+    }
+});
+
+// Set constraints for the same element
+hypeDocument.drag.setConstraints('card1', {
+    containment: 'parent'
+});
+```
+
 ## Configuration
 
 Customize default animation settings by calling this function once, for example in a global script or on first scene load.
@@ -156,6 +315,28 @@ HypeDragController.setDefault({
 | ------------------ | -------- | -------------------------------------- |
 | `data-drag-name`   | Yes      | Unique identifier for draggable elements. |
 | `data-drop-target` | No       | Identifies elements as drop targets.   |
+
+### Setting Drag Constraints in Hype
+
+You can define drag constraints directly on elements using Hype's **Identity Inspector** → **Attributes** panel. These are automatically loaded when each scene is prepared for display.
+
+In the **Attributes** panel of the Identity Inspector, add these attributes to your draggable elements:
+
+| Attribute Name | Attribute Value | Description |
+| -------------- | --------------- | ----------- |
+| `data-drag-name` | `card1` | Unique identifier for the draggable element (required). |
+| `data-constraint-min-x` | `100` | Minimum X position allowed (top-left corner). |
+| `data-constraint-max-x` | `500` | Maximum X position allowed (top-left corner). |
+| `data-constraint-min-y` | `100` | Minimum Y position allowed (top-left corner). |
+| `data-constraint-max-y` | `400` | Maximum Y position allowed (top-left corner). |
+| `data-constraint-axis` | `x` or `y` | Restrict movement to 'x' or 'y' axis only. |
+| `data-constraint-containment` | `.gameArea` or `parent` | CSS class selector or 'parent' to contain movement within. |
+
+**Example Setup:**
+1. Select your draggable element in Hype
+2. Open the **Identity Inspector**
+3. Go to the **Attributes** panel
+4. Add the constraint attributes as shown in the table above
 
 ## Scene-Specific Data (`gameState`)
 
@@ -229,6 +410,12 @@ function handleCardDrop(hypeDocument, element, event) {
     }
 }
 
+// -- DRAG CONSTRAINTS --
+// Set up parent containment for all cards (stays within their immediate containers)
+hypeDocument.drag.setConstraints(['cardA', 'cardB'], {
+    containment: 'parent'
+});
+
 // -- INTERACTION MAP --
 // Assign the shared handlers to multiple elements.
 hypeDocument.drag.setInteractionMap({
@@ -259,24 +446,34 @@ Sometimes you want the drop area to be larger than the element's final resting p
 We add a custom `snapToSelector` property to our interaction map to tell the `onDrop` function where to snap the element.
 
 ```javascript
+// Optional: Set constraints for the draggable element
+hypeDocument.drag.setConstraints('card1', {
+    containment: 'parent'  // Stays within immediate container
+});
+
+// Or use class selector containment:
+// hypeDocument.drag.setConstraints('card1', {
+//     containment: '.gameArea'
+// });
+
 hypeDocument.drag.setInteractionMap({
-    
+
     'card1': {
         correctTarget: 'holder1',
         snapToSelector: '.holder1-snap', // Use the class name as a CSS selector
-        
+
         onDrop: function(hypeDocument, draggedElement, event) {
             const targetElement = event.dropTarget;
 
             // Check if it was dropped on the correct target area
             if (targetElement && targetElement.dataset.dropTarget === this.correctTarget) {
-                
+
                 // Snap to our custom selector instead of the drop target itself
                 hypeDocument.drag.snapTo(draggedElement, this.snapToSelector);
                 hypeDocument.drag.lock(draggedElement);
-                
+
             } else {
-                hypeDocument.drag.snapBack(draggedElement); 
+                hypeDocument.drag.snapBack(draggedElement);
             }
         }
     }
