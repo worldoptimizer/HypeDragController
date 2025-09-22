@@ -33,6 +33,7 @@ https://github.com/worldoptimizer/HypeCookBook/wiki/Including-external-files-and
 -   **Multi-document support**: Works with multiple Hype documents on the same page
 -   **Drag constraints**: Boundary, axis, and within-region restrictions with automatic data-attribute loading
 -   **Auto snap**: Automatically snap elements to their constraints when scenes load
+-   **Event metrics**: Callbacks receive factor/midpoint/percent for axis-normalized values
 
 ## Installation
 
@@ -115,6 +116,77 @@ hypeDocument.drag.setInteractionMap({
 });
 ```
 
+### Event Metrics in Callbacks
+
+During `onStart`, `onProgress`, and `onDrop`, the `event` object is augmented with convenient, precomputed metrics derived from the element's effective drag bounds:
+
+```javascript
+// event additions (per axis)
+event.factorX, event.factorY     // 0..1|null   // normalized within bounds
+event.midpointX, event.midpointY // -1..1|null  // centered around midpoint
+event.percentX, event.percentY   // 0..100|null // percentage form
+```
+
+Field reference:
+
+| Field        | Range    | Meaning                                                     |
+| ------------ | -------- | ----------------------------------------------------------- |
+| `factorX`    | 0..1     | 0 at `minX`, 1 at `maxX`                                   |
+| `factorY`    | 0..1     | 0 at `minY`, 1 at `maxY`                                   |
+| `midpointX`  | -1..1    | -1 at `minX`, 0 at midpoint, 1 at `maxX`                   |
+| `midpointY`  | -1..1    | -1 at `minY`, 0 at midpoint, 1 at `maxY`                   |
+| `percentX`   | 0..100   | `factorX * 100`                                            |
+| `percentY`   | 0..100   | `factorY * 100`                                            |
+
+How bounds are determined:
+- If explicit `minX/maxX` or `minY/maxY` are set via constraints, those are used.
+- Otherwise, if `within` is set (e.g., `'parent'` or a selector), the usable travel inside that container is used (container size minus element size).
+- If no meaningful bounds can be determined for an axis, the values for that axis are `null`.
+
+Axis-locked behavior:
+- When `axis: 'x'`, only X changes; Y metrics may still be provided if bounds exist but will remain stable as you drag.
+- When `axis: 'y'`, only Y changes; X metrics behave analogously.
+
+Performance:
+- Metrics are computed in O(1) per drag frame and are negligible for single-element drags.
+
+Examples:
+
+```javascript
+// Drive opacity with horizontal Factor (0..1)
+hypeDocument.drag.setInteractionMap({
+  sliderX: {
+    onStart: function (hypeDocument, element, event) {
+      // Initialize based on current position
+      const t = event.factorX ?? 0;
+      hypeDocument.setElementProperty(element, 'opacity', 0.3 + 0.7 * t);
+    },
+    onProgress: function (hypeDocument, element, event) {
+      const t = event.factorX ?? 0;
+      hypeDocument.setElementProperty(element, 'opacity', 0.3 + 0.7 * t);
+    }
+  }
+});
+
+// Map joystick position to a signed range (-1..1) using Midpoint
+hypeDocument.drag.setInteractionMap({
+  joystick: {
+    onProgress: function (hypeDocument, element, event) {
+      const cx = event.midpointX ?? 0; // -1..1
+      const cy = event.midpointY ?? 0; // -1..1
+      // Example: rotate by horizontal deflection
+      hypeDocument.setElementProperty(element, 'rotateZ', cx * 30);
+    },
+    onDrop: function (hypeDocument, element, event) {
+      // Snap to the right if dropped with > 90% along X
+      if ((event.percentX ?? 0) > 90) {
+        hypeDocument.drag.snapTo(element, '.rightStop');
+      }
+    }
+  }
+});
+```
+
 ### `hypeDocument.drag.snapBack(element)`
 Animate an element back to its initial position using the default snap-back animation settings.
 
@@ -180,6 +252,23 @@ hypeDocument.drag.setConstraints([card1Element, 'card2', 'card3'], {
 | `maxY` | number | Maximum Y position allowed (top-left corner). |
 | `axis` | string | Restrict movement to 'x' or 'y' axis only. |
 | `within` | string | CSS selector (e.g., '.gameArea') or 'parent' to restrict movement within. |
+
+### `hypeDocument.drag.resetState(sceneElement)`
+Reset all drag-related state for a scene, including drag locks, cached positions, and interaction maps. This is useful for cleaning up after a scene's interactions are complete or when restarting a scene.
+
+```javascript
+// Reset current scene
+hypeDocument.drag.resetState();
+
+// Reset specific scene element
+hypeDocument.drag.resetState(sceneElement);
+```
+
+**What gets reset:**
+- All drag locks are removed (elements become draggable again)
+- Cached initial position data attributes are cleared
+- Interaction maps are cleared
+- Custom gameState data is cleared (if `hypeDocument.customData` exists)
 
 ## Drag Constraints Guide
 
@@ -253,16 +342,14 @@ Define constraints directly on elements using Hype's Identity Inspector:
 2. Open **Identity Inspector** → **Attributes**
 3. Add these attributes:
    - `data-drag-name`: `card1`
-   - `data-drag-within`: `parent`  
-     (alias: `data-drag-containment`)
+   - `data-drag-within`: `parent`
 
 **For class selector within:**
 1. Select your element in Hype
 2. Open **Identity Inspector** → **Attributes**
 3. Add these attributes:
    - `data-drag-name`: `card1`
-   - `data-drag-within`: `.gameArea`  
-     (alias: `data-drag-containment`)
+   - `data-drag-within`: `.gameArea`
 
 ### Batch Operations
 
@@ -397,6 +484,7 @@ In the **Attributes** panel of the Identity Inspector, add these attributes to y
 | `data-drag-max-y` | `400` | Maximum Y position allowed (top-left corner). |
 | `data-drag-axis` | `x` or `y` | Restrict movement to 'x' or 'y' axis only. |
 | `data-drag-within` | `.gameArea` or `parent` | CSS selector or 'parent' to restrict movement within. |
+| `data-drag-auto-snap` | `true` or `false` | Enable auto snap for this element (overrides global setting). |
 
 **Example Setup:**
 1. Select your draggable element in Hype
