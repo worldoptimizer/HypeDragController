@@ -1,5 +1,5 @@
 /*!
- * Hype Drag Controller v1.4.1
+ * Hype Drag Controller v1.4.2
  * Copyright (2024) Max Ziebell, MIT License
  */
 
@@ -21,10 +21,11 @@
  * 1.4.0   Added comprehensive drag constraint system with boundary, axis, and within-region restrictions.
  *          Enhanced to accept drag names, automatic data-attribute constraint loading, and array support for batch operations.
  * 1.4.1   Added auto-snap functionality to automatically snap elements to their constraints.
+ * 1.4.2   Added event metrics (factor/midpoint/percent) to callbacks.
  */
 
 if ("HypeDragController" in window === false) window['HypeDragController'] = (function() {
-    const _version = "1.4.1";
+    const _version = "1.4.2";
 
     let _default = {
         bringToFront: true,
@@ -241,6 +242,59 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
 
 
     /**
+     * Computes event metrics (factor, midpoint, percent) based on effective bounds.
+     * factor: 0..1 within bounds; midpoint: -1..1 centered; percent: 0..100.
+     * Returns nulls when bounds for an axis are not computable.
+     * @private
+     * @param {HypeDocument} hypeDocument
+     * @param {HTMLElement} element
+     * @param {object} constraints
+     * @param {number} left
+     * @param {number} top
+     * @returns {{factor:{x:number|null,y:number|null}, midpoint:{x:number|null,y:number|null}, percent:{x:number|null,y:number|null}}}
+     */
+    function _computeEventMetrics(hypeDocument, element, constraints, left, top) {
+        let minX, maxX, minY, maxY;
+        if (constraints) {
+            if (typeof constraints.minX === 'number' && typeof constraints.maxX === 'number') {
+                minX = constraints.minX; maxX = constraints.maxX;
+            }
+            if (typeof constraints.minY === 'number' && typeof constraints.maxY === 'number') {
+                minY = constraints.minY; maxY = constraints.maxY;
+            }
+            if ((minX === undefined || maxX === undefined || minY === undefined || maxY === undefined) && constraints.within) {
+                const b = _getWithinBounds(element, constraints.within, hypeDocument);
+                if (b) {
+                    if (minX === undefined || maxX === undefined) { minX = b.minX; maxX = b.maxX; }
+                    if (minY === undefined || maxY === undefined) { minY = b.minY; maxY = b.maxY; }
+                }
+            }
+        }
+
+        function normalize(value, min, max) {
+            if (typeof min !== 'number' || typeof max !== 'number' || !(max > min)) return null;
+            const t = (value - min) / (max - min);
+            if (t <= 0) return 0;
+            if (t >= 1) return 1;
+            return t;
+        }
+
+        const fx = normalize(left, minX, maxX);
+        const fy = normalize(top, minY, maxY);
+        const mx = fx == null ? null : (fx - 0.5) * 2;
+        const my = fy == null ? null : (fy - 0.5) * 2;
+        const px = fx == null ? null : fx * 100;
+        const py = fy == null ? null : fy * 100;
+
+        return {
+            factorX: fx, factorY: fy,
+            midpointX: mx, midpointY: my,
+            percentX: px, percentY: py
+        };
+    }
+
+
+    /**
      * The main drag event handler. Manages start, move, and end phases of a drag.
      * This function is intended to be called by Hype's "On Drag" event.
      * @param {HypeDocument} hypeDocument - The Hype document object.
@@ -270,6 +324,9 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
             // Execute onStart callback if available
             const interaction = doc.interactionMap?.[dragName];
             if (interaction && typeof interaction.onStart === 'function') {
+                const constraints = doc.constraints?.[dragName];
+                const metrics = _computeEventMetrics(hypeDocument, element, constraints, initialLeft, initialTop);
+                Object.assign(event, metrics);
                 interaction.onStart(hypeDocument, element, event);
             }
         }
@@ -301,6 +358,8 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
             // Execute onProgress callback if available
             const interaction = doc.interactionMap?.[dragName];
             if (interaction && typeof interaction.onProgress === 'function') {
+                const metrics = _computeEventMetrics(hypeDocument, element, constraints, newLeft, newTop);
+                Object.assign(event, metrics);
                 interaction.onProgress(hypeDocument, element, event);
             }
         }
@@ -315,6 +374,11 @@ if ("HypeDragController" in window === false) window['HypeDragController'] = (fu
 
             const interaction = doc.interactionMap?.[dragName];
             if (interaction && typeof interaction.onDrop === 'function') {
+                const constraints = doc.constraints?.[dragName];
+                const currentLeft = hypeDocument.getElementProperty(element, 'left');
+                const currentTop = hypeDocument.getElementProperty(element, 'top');
+                const metrics = _computeEventMetrics(hypeDocument, element, constraints, currentLeft, currentTop);
+                Object.assign(event, metrics);
                 interaction.onDrop(hypeDocument, element, event);
             }
 
